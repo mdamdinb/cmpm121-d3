@@ -1,4 +1,24 @@
-# Plan for D3
+# D3: World of Bits
+
+## Game Design Vision
+
+A location-based token crafting game where players explore the real world to collect and combine tokens. Players can only interact with nearby cells on a grid, collecting tokens and combining identical values to create tokens of double value. The goal is to craft a token of sufficiently high value through strategic collection and combination.
+
+## Technologies
+
+-TypeScript for game code, minimal HTML, CSS in `style.css`
+-Leaflet for map rendering
+-Deno and Vite for building
+-GitHub Actions + GitHub Pages for deployment
+
+### D3.a: Core mechanics (token collection and crafting)
+
+Key technical challenge:
+Can you assemble a map-based user interface using the Leaflet mapping framework?\
+Key gameplay challenge:
+Can players collect and craft tokens from nearby locations to finally make one of sufficiently high value?
+
+#### Steps
 
 Step 1:
 -Set up the basic page
