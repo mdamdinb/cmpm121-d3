@@ -14,8 +14,8 @@ const CLASSROOM_LATLNG = leaflet.latLng(
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
-const INTERACTION_RADIUS = 3;
-const CACHE_SPAWN_PROBABILITY = 0.1;
+const INTERACTION_RADIUS = 6;
+const CACHE_SPAWN_PROBABILITY = 0.3;
 const GOAL_VALUE = 64;
 
 // ==================== GAME STATE ====================
@@ -23,6 +23,8 @@ const GOAL_VALUE = 64;
 let heldToken: number | null = null;
 
 const cellStates = new Map<string, number | null>();
+const cellLabels = new Map<string, leaflet.Marker>(); // Track all token labels
+const cellRects = new Map<string, leaflet.Rectangle>(); // Track all rectangles
 
 // ==================== UI SETUP ====================
 
@@ -108,6 +110,40 @@ function updateStatus(): void {
   }
 }
 
+// Remove token label from a cell
+function removeTokenLabel(i: number, j: number): void {
+  const key = getCellKey(i, j);
+  const label = cellLabels.get(key);
+  if (label) {
+    map.removeLayer(label);
+    cellLabels.delete(key);
+  }
+}
+
+// Create or update token label for a cell
+function createTokenLabel(i: number, j: number, value: number): void {
+  const key = getCellKey(i, j);
+  const rect = cellRects.get(key);
+  if (!rect) return;
+
+  // Remove old label if exists
+  removeTokenLabel(i, j);
+
+  // Create new label
+  const bounds = rect.getBounds();
+  const center = bounds.getCenter();
+  const newLabel = leaflet.marker(center, {
+    icon: leaflet.divIcon({
+      className: "token-label",
+      html:
+        `<div style="font-size: 16px; font-weight: bold; color: #333; background: rgba(255,255,255,0.9); padding: 4px 8px; border-radius: 4px; border: 2px solid #333; pointer-events: none;">${value}</div>`,
+      iconSize: [40, 40],
+    }),
+  });
+  newLabel.addTo(map);
+  cellLabels.set(key, newLabel);
+}
+
 // ==================== CELL RENDERING ====================
 
 function spawnCell(i: number, j: number): void {
@@ -126,19 +162,13 @@ function spawnCell(i: number, j: number): void {
   });
   rect.addTo(map);
 
+  // Store the rectangle
+  const key = getCellKey(i, j);
+  cellRects.set(key, rect);
+
   //if cell has a token, display it
-  let tokenLabel: leaflet.Marker | null = null;
   if (tokenValue !== null) {
-    const center = bounds.getCenter();
-    tokenLabel = leaflet.marker(center, {
-      icon: leaflet.divIcon({
-        className: "token-label",
-        html:
-          `<div style="font-size: 16px; font-weight: bold; color: #333; background: rgba(255,255,255,0.9); padding: 4px 8px; border-radius: 4px; border: 2px solid #333;">${tokenValue}</div>`,
-        iconSize: [40, 40],
-      }),
-    });
-    tokenLabel.addTo(map);
+    createTokenLabel(i, j, tokenValue);
   }
 
   rect.on("click", () => {
@@ -146,25 +176,18 @@ function spawnCell(i: number, j: number): void {
       alert("Too far away! Move closer to interact with this cell.");
       return;
     }
-    handleCellClick(i, j, rect, tokenLabel);
+    handleCellClick(i, j);
   });
 }
 
-function handleCellClick(
-  i: number,
-  j: number,
-  rect: leaflet.Rectangle,
-  tokenLabel: leaflet.Marker | null,
-): void {
+function handleCellClick(i: number, j: number): void {
   const cellValue = getCellState(i, j);
 
-  //case 1:cell has a token, player has no token
+  //case 1:cell has a token, player has no token -> Pick up
   if (cellValue !== null && heldToken === null) {
     heldToken = cellValue;
     setCellState(i, j, null);
-    if (tokenLabel) {
-      map.removeLayer(tokenLabel);
-    }
+    removeTokenLabel(i, j);
     updateStatus();
     return;
   }
@@ -172,46 +195,23 @@ function handleCellClick(
   // Case 2: Cell is empty, player has a token -> Place down
   if (cellValue === null && heldToken !== null) {
     setCellState(i, j, heldToken);
-    const bounds = rect.getBounds();
-    const center = bounds.getCenter();
-    const newLabel = leaflet.marker(center, {
-      icon: leaflet.divIcon({
-        className: "token-label",
-        html:
-          `<div style="font-size: 16px; font-weight: bold; color: #333; background: rgba(255,255,255,0.9); padding: 4px 8px; border-radius: 4px; border: 2px solid #333;">${heldToken}</div>`,
-        iconSize: [40, 40],
-      }),
-    });
-    newLabel.addTo(map);
+    createTokenLabel(i, j, heldToken);
     heldToken = null;
     updateStatus();
     return;
   }
 
-  //case 3:cell has token, player has token of same value
+  //case 3:cell has token, player has token of same value -> Combine!
   if (cellValue !== null && heldToken !== null && cellValue === heldToken) {
     const newValue = cellValue * 2;
     setCellState(i, j, newValue);
-    if (tokenLabel) {
-      map.removeLayer(tokenLabel);
-    }
-    const bounds = rect.getBounds();
-    const center = bounds.getCenter();
-    const newLabel = leaflet.marker(center, {
-      icon: leaflet.divIcon({
-        className: "token-label",
-        html:
-          `<div style="font-size: 16px; font-weight: bold; color: #333; background: rgba(255,255,255,0.9); padding: 4px 8px; border-radius: 4px; border: 2px solid #333;">${newValue}</div>`,
-        iconSize: [40, 40],
-      }),
-    });
-    newLabel.addTo(map);
+    createTokenLabel(i, j, newValue);
     heldToken = null;
     updateStatus();
     return;
   }
 
-  //case 4:cell has token, player has token of different value
+  //case 4:cell has token, player has token of different value -> Can't combine
   if (cellValue !== null && heldToken !== null && cellValue !== heldToken) {
     alert(
       `Cannot combine! Cell has ${cellValue}, you have ${heldToken}. Values must match to combine.`,
