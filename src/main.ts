@@ -11,6 +11,8 @@ const CLASSROOM_LATLNG = leaflet.latLng(
   -122.05703507501151,
 );
 
+const NULL_ISLAND = leaflet.latLng(0, 0); // Origin for global coordinate system
+
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
@@ -31,6 +33,28 @@ const cellRects = new Map<string, leaflet.Rectangle>(); // Track all rectangles
 const controlPanelDiv = document.createElement("div");
 controlPanelDiv.id = "controlPanel";
 document.body.append(controlPanelDiv);
+
+// Add movement buttons
+const northButton = document.createElement("button");
+northButton.textContent = "⬆️ North";
+northButton.onclick = () => movePlayer(1, 0);
+controlPanelDiv.append(northButton);
+
+const southButton = document.createElement("button");
+southButton.textContent = "⬇️ South";
+southButton.onclick = () => movePlayer(-1, 0);
+controlPanelDiv.append(southButton);
+
+const westButton = document.createElement("button");
+westButton.textContent = "⬅️ West";
+westButton.onclick = () => movePlayer(0, -1);
+controlPanelDiv.append(westButton);
+
+const eastButton = document.createElement("button");
+eastButton.textContent = "➡️ East";
+eastButton.onclick = () => movePlayer(0, 1);
+controlPanelDiv.append(eastButton);
+
 const mapDiv = document.createElement("div");
 mapDiv.id = "map";
 document.body.append(mapDiv);
@@ -68,13 +92,33 @@ function getCellKey(i: number, j: number): string {
   return `${i},${j}`;
 }
 
+// Convert lat/lng to cell coordinates (i, j)
+function latLngToCell(lat: number, lng: number): { i: number; j: number } {
+  const i = Math.floor((lat - NULL_ISLAND.lat) / TILE_DEGREES);
+  const j = Math.floor((lng - NULL_ISLAND.lng) / TILE_DEGREES);
+  return { i, j };
+}
+
+// Convert cell coordinates (i, j) to lat/lng bounds
+function cellToBounds(i: number, j: number): leaflet.LatLngBounds {
+  const southLat = NULL_ISLAND.lat + i * TILE_DEGREES;
+  const westLng = NULL_ISLAND.lng + j * TILE_DEGREES;
+  const northLat = southLat + TILE_DEGREES;
+  const eastLng = westLng + TILE_DEGREES;
+  return leaflet.latLngBounds([
+    [southLat, westLng],
+    [northLat, eastLng],
+  ]);
+}
+
 function cellDistance(i1: number, j1: number, i2: number, j2: number): number {
   return Math.max(Math.abs(i1 - i2), Math.abs(j1 - j2));
 }
 
-//check if a cell is within interaction range of player (at 0,0)
+//check if a cell is within interaction range of player
 function isNearby(i: number, j: number): boolean {
-  return cellDistance(0, 0, i, j) <= INTERACTION_RADIUS;
+  return cellDistance(playerPosition.i, playerPosition.j, i, j) <=
+    INTERACTION_RADIUS;
 }
 
 //initialize or get the state of a cell
@@ -146,12 +190,57 @@ function createTokenLabel(i: number, j: number, value: number): void {
 
 // ==================== CELL RENDERING ====================
 
+// Clear all cells from the map
+function clearCells(): void {
+  // Remove all rectangles
+  cellRects.forEach((rect) => map.removeLayer(rect));
+  cellRects.clear();
+
+  // Remove all labels
+  cellLabels.forEach((label) => map.removeLayer(label));
+  cellLabels.clear();
+
+  // Clear cell states (makes cells memoryless)
+  cellStates.clear();
+}
+
+// Spawn cells around the player's current position
+function spawnCellsAroundPlayer(): void {
+  for (
+    let i = playerPosition.i - NEIGHBORHOOD_SIZE;
+    i < playerPosition.i + NEIGHBORHOOD_SIZE;
+    i++
+  ) {
+    for (
+      let j = playerPosition.j - NEIGHBORHOOD_SIZE;
+      j < playerPosition.j + NEIGHBORHOOD_SIZE;
+      j++
+    ) {
+      spawnCell(i, j);
+    }
+  }
+}
+
+// Move the player by di, dj cells
+function movePlayer(di: number, dj: number): void {
+  playerPosition.i += di;
+  playerPosition.j += dj;
+
+  // Update player marker position
+  const bounds = cellToBounds(playerPosition.i, playerPosition.j);
+  const center = bounds.getCenter();
+  playerMarker.setLatLng(center);
+
+  // Recenter map on player
+  map.panTo(center);
+
+  // Clear old cells and spawn new ones
+  clearCells();
+  spawnCellsAroundPlayer();
+}
+
 function spawnCell(i: number, j: number): void {
-  const origin = CLASSROOM_LATLNG;
-  const bounds = leaflet.latLngBounds([
-    [origin.lat + i * TILE_DEGREES, origin.lng + j * TILE_DEGREES],
-    [origin.lat + (i + 1) * TILE_DEGREES, origin.lng + (j + 1) * TILE_DEGREES],
-  ]);
+  const bounds = cellToBounds(i, j);
 
   const tokenValue = getCellState(i, j);
   const nearby = isNearby(i, j);
@@ -222,10 +311,10 @@ function handleCellClick(i: number, j: number): void {
 
 // ==================== INITIALIZE GAME ====================
 
-for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
-  for (let j = -NEIGHBORHOOD_SIZE; j < NEIGHBORHOOD_SIZE; j++) {
-    spawnCell(i, j);
-  }
-}
+// Initialize player position at classroom
+const playerPosition = latLngToCell(CLASSROOM_LATLNG.lat, CLASSROOM_LATLNG.lng);
+
+// Spawn initial cells around player
+spawnCellsAroundPlayer();
 
 updateStatus();
