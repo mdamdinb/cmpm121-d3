@@ -143,3 +143,74 @@ Step 10:
 -Do one cleanup-only commit with no new features.
 -Mark milestone complete with "(D3.b complete)" in commit message.
 -Deploy and test that the game works on the web.
+
+###### D3.c: Object persistence
+
+Key technical challenge:
+Can your software accurately remember the state of map cells even when they scroll off the screen?
+Key gameplay challenge:
+Can you fix a gameplay bug where players can farm tokens by moving into and out of a region repeatedly to get access to fresh resources?
+
+####### Steps for C
+
+Step 1:
+-Separate visual clearing from state clearing
+-Rename clearCells() to clearCellVisuals() to better reflect its purpose.
+-Remove the line that clears cellStates map from this function.
+-Only clear the visual elements (cellRects and cellLabels maps).
+-Cell states should now persist in memory even when off-screen.
+-Update all calls to use the new function name.
+Step 2:
+-Add tracking for modified cells
+-Create a new Set called modifiedCells to track which cells have been touched by the player.
+-This will help implement the Flyweight pattern for memory efficiency.
+-Only cells in this set need to be stored in memory.
+Step 3:
+-Update setCellState to mark modifications
+-When setCellState is called, add the cell's key to the modifiedCells set.
+-This marks that the player has interacted with this cell.
+-The cell's state should now be permanently stored.
+Step 4:
+-Implement Flyweight pattern in getCellState
+-Check if the cell key is in modifiedCells set.
+-If yes, return the stored state from cellStates map.
+-If no, generate the default state using the luck function but don't store it.
+-This saves memory by only storing cells the player has modified.
+-Unmodified cells will always generate the same state due to deterministic luck function.
+Step 5:
+-Test cell state persistence
+-Pick up a token from a cell to modify it.
+-Move away so the cell goes off-screen.
+-Move back to that cell.
+-Verify the cell is still empty (not regenerated).
+-Test with placing tokens and combining as well.
+Step 6:
+-Test unmodified cells still work
+-Find a cell you haven't touched yet.
+-Note its token value (or lack of token).
+-Move away and come back.
+-Verify it still has the same state (generated from luck).
+-This confirms the Flyweight pattern is working.
+Step 7:
+-Verify farming exploit is fixed
+-Try to farm tokens by moving in and out of an area.
+-Once you pick up a token, that cell should stay empty.
+-Tokens should not regenerate in cells you've already collected from.
+-The exploit should be completely fixed.
+Step 8:
+-Add comments explaining the patterns
+-Add a comment explaining the Flyweight pattern implementation.
+-Add a comment explaining how the Memento pattern is applied.
+-Make sure the code is clear about what is stored vs what is computed.
+Step 9:
+-Test memory efficiency
+-Verify that cellStates only contains modified cells.
+-Move around and observe that unmodified cells don't add to cellStates.
+-Check that the game still runs smoothly with persistent state.
+Step 10:
+-Cleanup and finish
+-Remove any debug logs or temporary test code.
+-Make sure all comments accurately describe the implementation.
+-Do one cleanup-only commit with no new features.
+-Mark milestone complete with "(D3.c complete)" in commit message.
+-Deploy and test that persistence works on the web.
