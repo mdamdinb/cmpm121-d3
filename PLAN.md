@@ -74,3 +74,72 @@ Step 10:
 -Do one cleanup-only commit.
 -Mark the milestone done in the commit message.
 -Make sure the deployed version works properly.
+
+##### D3.b: Globe-spanning Gameplay
+
+Key technical challenge:
+Can you assemble a map-based user interface using the Leaflet mapping framework?
+Key gameplay challenge:
+Can players collect and craft tokens from nearby locations to finally make one of sufficiently high value?
+
+###### Steps for B
+
+Step 1:
+-Change coordinate system to Null Island
+-Replace classroom-relative coordinates (0,0 at classroom) with global coordinates anchored at Null Island (0° lat, 0° lng).
+-Create helper functions to convert lat/lng to cell (i,j) and cell (i,j) to lat/lng bounds.
+-Update all existing code to use these conversion functions.
+-Test that existing cells still appear in correct positions.
+Step 2:
+-Track player position separately
+-Add a playerPosition variable to track the player's current cell (i,j).
+-Initialize it to the cell containing the classroom coordinates.
+-Update the playerMarker position but keep it separate from cell coordinates.
+-Commit and verify player marker still shows correctly.
+Step 3:
+-Add movement buttons
+-Create four buttons in the control panel: North, South, East, West.
+-Each button moves the player by one cell in that direction.
+-Update playerPosition when a button is clicked.
+-Move the playerMarker on the map to follow the new position.
+-Test that clicking buttons moves the marker around.
+Step 4:
+-Dynamic cell spawning based on player position
+-Remove the initial grid spawning loop from D3.a.
+-Create a function that spawns cells in a neighborhood around the player's current position.
+-Call this function whenever the player moves.
+-Make sure cells fill the visible area of the map.
+Step 5:
+-Clear old cells when moving
+-Before spawning new cells, remove all existing rectangles and labels from the map.
+-Clear the cellRects and cellLabels maps.
+-Make cells "memoryless" by clearing the cellStates map too (this creates the farming bug).
+-Test that moving causes fresh cells to appear.
+Step 6:
+-Update interaction range to follow player
+-Change the isNearby function to check distance from the current playerPosition, not (0,0).
+-Update cell coloring to highlight cells near the player's new position.
+-Test that only cells near the player are interactable after moving.
+Step 7:
+-Recenter map on player movement
+-When the player moves, recenter the map on the new player position.
+-Use map.panTo() to smoothly move the view.
+-Make sure this doesn't conflict with manual scrolling.
+Step 8:
+-Handle manual map scrolling
+-Add a moveend event listener to detect when the user scrolls the map.
+-When the map stops moving, respawn cells to fill the visible area.
+-Make sure cells still reference the player's actual position for interaction checks.
+-Test both player movement and manual scrolling.
+Step 9:
+-Increase victory threshold
+-Change GOAL_VALUE to something higher (like 64 or 128).
+-Update the win message to reflect the new goal.
+-Play through the game to verify it's still achievable by moving around.
+Step 10:
+-Cleanup and finish
+-Remove any leftover debug code or console logs.
+-Check that all coordinate conversions are consistent.
+-Do one cleanup-only commit with no new features.
+-Mark milestone complete with "(D3.b complete)" in commit message.
+-Deploy and test that the game works on the web.
