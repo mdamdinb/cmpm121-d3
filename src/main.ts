@@ -11,7 +11,7 @@ const CLASSROOM_LATLNG = leaflet.latLng(
   -122.05703507501151,
 );
 
-const NULL_ISLAND = leaflet.latLng(0, 0); // Origin for global coordinate system
+const NULL_ISLAND = leaflet.latLng(0, 0);
 
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
@@ -25,8 +25,9 @@ const GOAL_VALUE = 64;
 let heldToken: number | null = null;
 
 const cellStates = new Map<string, number | null>();
-const cellLabels = new Map<string, leaflet.Marker>(); // Track all token labels
-const cellRects = new Map<string, leaflet.Rectangle>(); // Track all rectangles
+const modifiedCells = new Set<string>();
+const cellLabels = new Map<string, leaflet.Marker>();
+const cellRects = new Map<string, leaflet.Rectangle>();
 
 // ==================== UI SETUP ====================
 
@@ -92,14 +93,14 @@ function getCellKey(i: number, j: number): string {
   return `${i},${j}`;
 }
 
-// Convert lat/lng to cell coordinates (i, j)
+//convert lat/lng to cell coordinates (i, j)
 function latLngToCell(lat: number, lng: number): { i: number; j: number } {
   const i = Math.floor((lat - NULL_ISLAND.lat) / TILE_DEGREES);
   const j = Math.floor((lng - NULL_ISLAND.lng) / TILE_DEGREES);
   return { i, j };
 }
 
-// Convert cell coordinates (i, j) to lat/lng bounds
+//convert cell coordinates (i, j) to lat/lng bounds
 function cellToBounds(i: number, j: number): leaflet.LatLngBounds {
   const southLat = NULL_ISLAND.lat + i * TILE_DEGREES;
   const westLng = NULL_ISLAND.lng + j * TILE_DEGREES;
@@ -121,24 +122,26 @@ function isNearby(i: number, j: number): boolean {
     INTERACTION_RADIUS;
 }
 
-//initialize or get the state of a cell
+//initialize or get the state of a cell (Flyweight pattern: only store modified cells)
 function getCellState(i: number, j: number): number | null {
   const key = getCellKey(i, j);
-  if (!cellStates.has(key)) {
-    if (luck([i, j].toString()) < CACHE_SPAWN_PROBABILITY) {
-      const value = luck([i, j, "value"].toString()) < 0.5 ? 1 : 2;
-      cellStates.set(key, value);
-    } else {
-      cellStates.set(key, null);
-    }
+
+  //if cell was modified by player, return stored state
+  if (modifiedCells.has(key)) {
+    return cellStates.get(key)!;
   }
 
-  return cellStates.get(key)!;
+  //otherwise, generate default state using luck (but don't store it)
+  if (luck([i, j].toString()) < CACHE_SPAWN_PROBABILITY) {
+    return luck([i, j, "value"].toString()) < 0.5 ? 1 : 2;
+  }
+  return null;
 }
 
 function setCellState(i: number, j: number, value: number | null): void {
   const key = getCellKey(i, j);
   cellStates.set(key, value);
+  modifiedCells.add(key);
 }
 
 function updateStatus(): void {
@@ -154,7 +157,7 @@ function updateStatus(): void {
   }
 }
 
-// Remove token label from a cell
+//remove token label from a cell
 function removeTokenLabel(i: number, j: number): void {
   const key = getCellKey(i, j);
   const label = cellLabels.get(key);
@@ -164,16 +167,14 @@ function removeTokenLabel(i: number, j: number): void {
   }
 }
 
-// Create or update token label for a cell
+//create or update token label for a cell
 function createTokenLabel(i: number, j: number, value: number): void {
   const key = getCellKey(i, j);
   const rect = cellRects.get(key);
   if (!rect) return;
 
-  // Remove old label if exists
   removeTokenLabel(i, j);
 
-  // Create new label
   const bounds = rect.getBounds();
   const center = bounds.getCenter();
   const newLabel = leaflet.marker(center, {
@@ -190,21 +191,14 @@ function createTokenLabel(i: number, j: number, value: number): void {
 
 // ==================== CELL RENDERING ====================
 
-// Clear all cells from the map
-function clearCells(): void {
-  // Remove all rectangles
+function clearCellVisuals(): void {
   cellRects.forEach((rect) => map.removeLayer(rect));
   cellRects.clear();
 
-  // Remove all labels
   cellLabels.forEach((label) => map.removeLayer(label));
   cellLabels.clear();
-
-  // Clear cell states (makes cells memoryless)
-  cellStates.clear();
 }
 
-// Spawn cells around the player's current position
 function spawnCellsAroundPlayer(): void {
   for (
     let i = playerPosition.i - NEIGHBORHOOD_SIZE;
@@ -221,21 +215,17 @@ function spawnCellsAroundPlayer(): void {
   }
 }
 
-// Move the player by di, dj cells
 function movePlayer(di: number, dj: number): void {
   playerPosition.i += di;
   playerPosition.j += dj;
 
-  // Update player marker position
   const bounds = cellToBounds(playerPosition.i, playerPosition.j);
   const center = bounds.getCenter();
   playerMarker.setLatLng(center);
 
-  // Recenter map on player
   map.panTo(center);
 
-  // Clear old cells and spawn new ones
-  clearCells();
+  clearCellVisuals();
   spawnCellsAroundPlayer();
 }
 
@@ -251,11 +241,9 @@ function spawnCell(i: number, j: number): void {
   });
   rect.addTo(map);
 
-  // Store the rectangle
   const key = getCellKey(i, j);
   cellRects.set(key, rect);
 
-  //if cell has a token, display it
   if (tokenValue !== null) {
     createTokenLabel(i, j, tokenValue);
   }
@@ -281,7 +269,7 @@ function handleCellClick(i: number, j: number): void {
     return;
   }
 
-  // Case 2: Cell is empty, player has a token -> Place down
+  //case 2:cell is empty, player has a token -> Place down
   if (cellValue === null && heldToken !== null) {
     setCellState(i, j, heldToken);
     createTokenLabel(i, j, heldToken);
@@ -311,10 +299,8 @@ function handleCellClick(i: number, j: number): void {
 
 // ==================== INITIALIZE GAME ====================
 
-// Initialize player position at classroom
 const playerPosition = latLngToCell(CLASSROOM_LATLNG.lat, CLASSROOM_LATLNG.lng);
 
-// Spawn initial cells around player
 spawnCellsAroundPlayer();
 
 updateStatus();
