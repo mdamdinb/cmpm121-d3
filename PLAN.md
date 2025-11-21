@@ -151,7 +151,7 @@ Can your software accurately remember the state of map cells even when they scro
 Key gameplay challenge:
 Can you fix a gameplay bug where players can farm tokens by moving into and out of a region repeatedly to get access to fresh resources?
 
-####### Steps for C
+###### Steps for C
 
 Step 1:
 -Separate visual clearing from state clearing
@@ -214,3 +214,109 @@ Step 10:
 -Do one cleanup-only commit with no new features.
 -Mark milestone complete with "(D3.c complete)" in commit message.
 -Deploy and test that persistence works on the web.
+
+###### D3.d: Gameplay Across Real-world Space and Time
+
+Key technical challenges:
+Can your software remember game state even when the page is closed? Is the player character's in-game movement controlled by the real-world geolocation of their device?
+Key gameplay challenge:
+Can the user test the game with multiple gameplay sessions, some involving real-world movement and some involving simulated movement?
+
+###### Steps for D
+
+Step 1:
+-Create a MovementStrategy interface (Facade pattern)
+-Define an interface for different movement systems.
+-Interface should have methods like: getCurrentPosition(), startTracking(), stopTracking().
+-This will allow us to swap between button-based and geolocation-based movement.
+-Hide the complexity of movement behind a simple interface.
+Step 2:
+-Implement ButtonMovementStrategy
+-Create a class that implements the MovementStrategy interface.
+-This will handle the existing button-based movement.
+-Store the current player position internally.
+-Update position when buttons are clicked.
+-Keep all the existing button code but wrap it in this strategy.
+Step 3:
+-Implement GeolocationMovementStrategy
+-Create a class that implements the MovementStrategy interface.
+-Use the browser's navigator.geolocation.watchPosition() API.
+-Convert real GPS coordinates to cell (i,j) coordinates.
+-Update player position automatically when device moves.
+-Handle errors gracefully if geolocation is unavailable or denied.
+Step 4:
+-Add movement mode selection
+-Check URL query string for ?movement=geolocation or ?movement=buttons.
+-Default to buttons if no query string provided.
+-Create the appropriate movement strategy based on the URL parameter.
+-Store reference to the active strategy.
+Step 5:
+-Add movement mode toggle button
+-Add a button to switch between movement modes at runtime.
+-When clicked, stop the current strategy and start the new one.
+-Update the button text to show current mode.
+-Update URL query string when mode changes (optional but nice).
+Step 6:
+-Refactor movePlayer to use strategy
+-Instead of directly updating playerPosition in buttons, call the strategy.
+-The strategy should notify the game when position changes.
+-Game should update visuals based on strategy's position.
+-This decouples movement logic from game logic.
+Step 7:
+-Implement localStorage persistence
+-Create saveGameState() function to serialize game state to JSON.
+-Save: heldToken, cellStates, modifiedCells, playerPosition.
+-Create loadGameState() function to restore state from localStorage.
+-Call saveGameState() whenever game state changes (after each player action).
+-Call loadGameState() on page load if saved data exists.
+Step 8:
+-Add "New Game" button
+-Create a button to reset the game state.
+-Clear localStorage when clicked.
+-Reset heldToken, cellStates, modifiedCells.
+-Reset player to starting position (classroom).
+-Refresh the display.
+-Confirm with user before clearing.
+Step 9:
+-Test geolocation mode
+-Open game with ?movement=geolocation in URL.
+-Grant location permissions if browser asks.
+-Walk around (or simulate movement) and verify player moves on map.
+-Test that cells update based on real position.
+-Verify interaction radius follows real position.
+Step 10:
+-Test persistence across sessions
+-Play the game and collect some tokens.
+-Note your position and inventory.
+-Close the browser tab completely.
+-Reopen the game page.
+-Verify you're in the same position with same inventory.
+-Verify modified cells are still in their modified state.
+Step 11:
+-Test mode switching
+-Start in button mode, move around, collect tokens.
+-Switch to geolocation mode.
+-Verify position and state are preserved.
+-Switch back to button mode.
+-Verify everything still works correctly.
+Step 12:
+-Test new game functionality
+-Play for a bit and modify some cells.
+-Click "New Game" button.
+-Verify all state is reset to initial conditions.
+-Close and reopen page.
+-Verify the reset persisted (no old state loaded).
+Step 13:
+-Add UI feedback for geolocation
+-Show indicator when using geolocation mode.
+-Show accuracy/error messages if GPS is inaccurate.
+-Show message if geolocation permission is denied.
+-Make it clear to user which mode they're in.
+Step 14:
+-Cleanup and finish
+-Remove any debug logs or test code.
+-Add comments explaining the Facade pattern usage.
+-Ensure all three design patterns are documented (Flyweight, Memento, Facade).
+-Do one cleanup-only commit with no new features.
+-Mark milestone complete with "(D3.d complete)" in commit message.
+-Deploy final version and test all features on the web.
