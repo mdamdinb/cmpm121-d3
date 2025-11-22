@@ -3,6 +3,19 @@
   display: flex;
   gap: 0.5rem;
   flex-wrap: wrap;
+  align-items: center;
+}
+
+#movementButtons {
+  display: flex;
+  gap: 0.5rem;
+}
+
+#modeIndicator {
+  font-weight: bold;
+  padding: 0.5rem;
+  background: #e8f4f8;
+  border-radius: 4px;
 }
 
 #controlPanel button {

@@ -4,6 +4,101 @@ import "./_leafletWorkaround.ts";
 import luck from "./_luck.ts";
 import "./style.css";
 
+// ==================== MOVEMENT STRATEGY (FACADE PATTERN) ====================
+
+// Interface for different movement strategies
+interface MovementStrategy {
+  getCurrentPosition(): { i: number; j: number };
+  startTracking(onPositionChange: (i: number, j: number) => void): void;
+  stopTracking(): void;
+}
+
+// Button-based movement strategy
+class ButtonMovementStrategy implements MovementStrategy {
+  private position: { i: number; j: number };
+  private onPositionChange: ((i: number, j: number) => void) | null = null;
+
+  constructor(initialPosition: { i: number; j: number }) {
+    this.position = { ...initialPosition };
+  }
+
+  getCurrentPosition(): { i: number; j: number } {
+    return { ...this.position };
+  }
+
+  startTracking(onPositionChange: (i: number, j: number) => void): void {
+    this.onPositionChange = onPositionChange;
+  }
+
+  stopTracking(): void {
+    this.onPositionChange = null;
+  }
+
+  moveBy(di: number, dj: number): void {
+    this.position.i += di;
+    this.position.j += dj;
+    if (this.onPositionChange) {
+      this.onPositionChange(this.position.i, this.position.j);
+    }
+  }
+}
+
+// Geolocation-based movement strategy
+class GeolocationMovementStrategy implements MovementStrategy {
+  private position: { i: number; j: number };
+  private onPositionChange: ((i: number, j: number) => void) | null = null;
+  private watchId: number | null = null;
+
+  constructor(initialPosition: { i: number; j: number }) {
+    this.position = { ...initialPosition };
+  }
+
+  getCurrentPosition(): { i: number; j: number } {
+    return { ...this.position };
+  }
+
+  startTracking(onPositionChange: (i: number, j: number) => void): void {
+    this.onPositionChange = onPositionChange;
+
+    if ("geolocation" in navigator) {
+      this.watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          // Convert GPS coordinates to cell coordinates
+          const cell = latLngToCell(
+            position.coords.latitude,
+            position.coords.longitude,
+          );
+          this.position = cell;
+          if (this.onPositionChange) {
+            this.onPositionChange(cell.i, cell.j);
+          }
+        },
+        (error) => {
+          console.error("Geolocation error:", error.message);
+          alert(
+            "Unable to get your location. Please check permissions or switch to button mode.",
+          );
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 0,
+          timeout: 5000,
+        },
+      );
+    } else {
+      alert("Geolocation is not supported by your browser.");
+    }
+  }
+
+  stopTracking(): void {
+    if (this.watchId !== null) {
+      navigator.geolocation.clearWatch(this.watchId);
+      this.watchId = null;
+    }
+    this.onPositionChange = null;
+  }
+}
+
 // ==================== CONSTANTS ====================
 
 const CLASSROOM_LATLNG = leaflet.latLng(
@@ -11,7 +106,7 @@ const CLASSROOM_LATLNG = leaflet.latLng(
   -122.05703507501151,
 );
 
-const NULL_ISLAND = leaflet.latLng(0, 0);
+const NULL_ISLAND = leaflet.latLng(0, 0); // Origin for global coordinate system
 
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
@@ -23,11 +118,12 @@ const GOAL_VALUE = 64;
 // ==================== GAME STATE ====================
 
 let heldToken: number | null = null;
+let movementStrategy: MovementStrategy | null = null; // Current movement strategy (Facade)
 
-const cellStates = new Map<string, number | null>();
-const modifiedCells = new Set<string>();
-const cellLabels = new Map<string, leaflet.Marker>();
-const cellRects = new Map<string, leaflet.Rectangle>();
+const cellStates = new Map<string, number | null>(); // Only stores modified cells
+const modifiedCells = new Set<string>(); // Track which cells have been modified by player
+const cellLabels = new Map<string, leaflet.Marker>(); // Track all token labels
+const cellRects = new Map<string, leaflet.Rectangle>(); // Track all rectangles
 
 // ==================== UI SETUP ====================
 
@@ -35,26 +131,61 @@ const controlPanelDiv = document.createElement("div");
 controlPanelDiv.id = "controlPanel";
 document.body.append(controlPanelDiv);
 
-// Add movement buttons
+// Add movement buttons (will be hidden in geolocation mode)
+const movementButtonsDiv = document.createElement("div");
+movementButtonsDiv.id = "movementButtons";
+controlPanelDiv.append(movementButtonsDiv);
+
 const northButton = document.createElement("button");
 northButton.textContent = "⬆️ North";
-northButton.onclick = () => movePlayer(1, 0);
-controlPanelDiv.append(northButton);
+northButton.onclick = () => {
+  if (movementStrategy instanceof ButtonMovementStrategy) {
+    movementStrategy.moveBy(1, 0);
+  }
+};
+movementButtonsDiv.append(northButton);
 
 const southButton = document.createElement("button");
 southButton.textContent = "⬇️ South";
-southButton.onclick = () => movePlayer(-1, 0);
-controlPanelDiv.append(southButton);
+southButton.onclick = () => {
+  if (movementStrategy instanceof ButtonMovementStrategy) {
+    movementStrategy.moveBy(-1, 0);
+  }
+};
+movementButtonsDiv.append(southButton);
 
 const westButton = document.createElement("button");
 westButton.textContent = "⬅️ West";
-westButton.onclick = () => movePlayer(0, -1);
-controlPanelDiv.append(westButton);
+westButton.onclick = () => {
+  if (movementStrategy instanceof ButtonMovementStrategy) {
+    movementStrategy.moveBy(0, -1);
+  }
+};
+movementButtonsDiv.append(westButton);
 
 const eastButton = document.createElement("button");
 eastButton.textContent = "➡️ East";
-eastButton.onclick = () => movePlayer(0, 1);
-controlPanelDiv.append(eastButton);
+eastButton.onclick = () => {
+  if (movementStrategy instanceof ButtonMovementStrategy) {
+    movementStrategy.moveBy(0, 1);
+  }
+};
+movementButtonsDiv.append(eastButton);
+
+const modeToggleButton = document.createElement("button");
+modeToggleButton.textContent = "📍 Switch to Geolocation";
+modeToggleButton.onclick = () => toggleMovementMode();
+controlPanelDiv.append(modeToggleButton);
+
+const resetButton = document.createElement("button");
+resetButton.textContent = "🔄 New Game";
+resetButton.onclick = () => resetGameState();
+controlPanelDiv.append(resetButton);
+
+const modeIndicator = document.createElement("div");
+modeIndicator.id = "modeIndicator";
+modeIndicator.textContent = "Mode: Buttons";
+controlPanelDiv.append(modeIndicator);
 
 const mapDiv = document.createElement("div");
 mapDiv.id = "map";
@@ -85,6 +216,72 @@ leaflet
 const playerMarker = leaflet.marker(CLASSROOM_LATLNG);
 playerMarker.bindTooltip("That's you!");
 playerMarker.addTo(map);
+
+// ==================== PERSISTENCE (MEMENTO PATTERN) ====================
+
+function saveGameState(): void {
+  const gameState = {
+    heldToken,
+    playerPosition: movementStrategy?.getCurrentPosition() ||
+      latLngToCell(CLASSROOM_LATLNG.lat, CLASSROOM_LATLNG.lng),
+    cellStates: Array.from(cellStates.entries()),
+    modifiedCells: Array.from(modifiedCells),
+  };
+  localStorage.setItem("gameState", JSON.stringify(gameState));
+}
+
+function loadGameState(): boolean {
+  const saved = localStorage.getItem("gameState");
+  if (!saved) return false;
+
+  try {
+    const gameState = JSON.parse(saved);
+    heldToken = gameState.heldToken;
+
+    cellStates.clear();
+    for (const [key, value] of gameState.cellStates) {
+      cellStates.set(key, value);
+    }
+
+    modifiedCells.clear();
+    for (const key of gameState.modifiedCells) {
+      modifiedCells.add(key);
+    }
+
+    return true;
+  } catch (e) {
+    console.error("Failed to load game state:", e);
+    return false;
+  }
+}
+
+function resetGameState(): void {
+  if (
+    confirm(
+      "Are you sure you want to start a new game? All progress will be lost.",
+    )
+  ) {
+    localStorage.removeItem("gameState");
+    heldToken = null;
+    cellStates.clear();
+    modifiedCells.clear();
+
+    const classroomCell = latLngToCell(
+      CLASSROOM_LATLNG.lat,
+      CLASSROOM_LATLNG.lng,
+    );
+    if (movementStrategy) {
+      movementStrategy.stopTracking();
+    }
+    initializeMovementStrategy(classroomCell);
+
+    clearCellVisuals();
+    spawnCellsAroundPlayer();
+    updateStatus();
+
+    alert("New game started!");
+  }
+}
 
 // ==================== HELPER FUNCTIONS ====================
 
@@ -118,20 +315,19 @@ function cellDistance(i1: number, j1: number, i2: number, j2: number): number {
 
 //check if a cell is within interaction range of player
 function isNearby(i: number, j: number): boolean {
-  return cellDistance(playerPosition.i, playerPosition.j, i, j) <=
-    INTERACTION_RADIUS;
+  if (!movementStrategy) return false;
+  const pos = movementStrategy.getCurrentPosition();
+  return cellDistance(pos.i, pos.j, i, j) <= INTERACTION_RADIUS;
 }
 
 //initialize or get the state of a cell (Flyweight pattern: only store modified cells)
 function getCellState(i: number, j: number): number | null {
   const key = getCellKey(i, j);
 
-  //if cell was modified by player, return stored state
   if (modifiedCells.has(key)) {
     return cellStates.get(key)!;
   }
 
-  //otherwise, generate default state using luck (but don't store it)
   if (luck([i, j].toString()) < CACHE_SPAWN_PROBABILITY) {
     return luck([i, j, "value"].toString()) < 0.5 ? 1 : 2;
   }
@@ -157,7 +353,6 @@ function updateStatus(): void {
   }
 }
 
-//remove token label from a cell
 function removeTokenLabel(i: number, j: number): void {
   const key = getCellKey(i, j);
   const label = cellLabels.get(key);
@@ -175,6 +370,7 @@ function createTokenLabel(i: number, j: number, value: number): void {
 
   removeTokenLabel(i, j);
 
+  //create new label
   const bounds = rect.getBounds();
   const center = bounds.getCenter();
   const newLabel = leaflet.marker(center, {
@@ -192,6 +388,7 @@ function createTokenLabel(i: number, j: number, value: number): void {
 // ==================== CELL RENDERING ====================
 
 function clearCellVisuals(): void {
+  // Remove all rectangles
   cellRects.forEach((rect) => map.removeLayer(rect));
   cellRects.clear();
 
@@ -200,14 +397,12 @@ function clearCellVisuals(): void {
 }
 
 function spawnCellsAroundPlayer(): void {
-  for (
-    let i = playerPosition.i - NEIGHBORHOOD_SIZE;
-    i < playerPosition.i + NEIGHBORHOOD_SIZE;
-    i++
-  ) {
+  if (!movementStrategy) return;
+  const pos = movementStrategy.getCurrentPosition();
+  for (let i = pos.i - NEIGHBORHOOD_SIZE; i < pos.i + NEIGHBORHOOD_SIZE; i++) {
     for (
-      let j = playerPosition.j - NEIGHBORHOOD_SIZE;
-      j < playerPosition.j + NEIGHBORHOOD_SIZE;
+      let j = pos.j - NEIGHBORHOOD_SIZE;
+      j < pos.j + NEIGHBORHOOD_SIZE;
       j++
     ) {
       spawnCell(i, j);
@@ -215,11 +410,9 @@ function spawnCellsAroundPlayer(): void {
   }
 }
 
-function movePlayer(di: number, dj: number): void {
-  playerPosition.i += di;
-  playerPosition.j += dj;
-
-  const bounds = cellToBounds(playerPosition.i, playerPosition.j);
+//called when player position changes (from any movement strategy)
+function onPlayerMoved(i: number, j: number): void {
+  const bounds = cellToBounds(i, j);
   const center = bounds.getCenter();
   playerMarker.setLatLng(center);
 
@@ -227,6 +420,8 @@ function movePlayer(di: number, dj: number): void {
 
   clearCellVisuals();
   spawnCellsAroundPlayer();
+
+  saveGameState();
 }
 
 function spawnCell(i: number, j: number): void {
@@ -241,9 +436,11 @@ function spawnCell(i: number, j: number): void {
   });
   rect.addTo(map);
 
+  //store the rectangle
   const key = getCellKey(i, j);
   cellRects.set(key, rect);
 
+  //if cell has a token, display it
   if (tokenValue !== null) {
     createTokenLabel(i, j, tokenValue);
   }
@@ -266,15 +463,17 @@ function handleCellClick(i: number, j: number): void {
     setCellState(i, j, null);
     removeTokenLabel(i, j);
     updateStatus();
+    saveGameState();
     return;
   }
 
-  //case 2:cell is empty, player has a token -> Place down
+  // Case 2: Cell is empty, player has a token -> Place down
   if (cellValue === null && heldToken !== null) {
     setCellState(i, j, heldToken);
     createTokenLabel(i, j, heldToken);
     heldToken = null;
     updateStatus();
+    saveGameState();
     return;
   }
 
@@ -285,6 +484,7 @@ function handleCellClick(i: number, j: number): void {
     createTokenLabel(i, j, newValue);
     heldToken = null;
     updateStatus();
+    saveGameState();
     return;
   }
 
@@ -297,9 +497,78 @@ function handleCellClick(i: number, j: number): void {
   }
 }
 
+// ==================== MOVEMENT CONTROL ====================
+
+let currentMovementMode: "buttons" | "geolocation" = "buttons";
+
+function initializeMovementStrategy(
+  startPosition: { i: number; j: number },
+): void {
+  // Check URL query string for movement mode
+  const params = new URLSearchParams(globalThis.location.search);
+  const urlMode = params.get("movement");
+  if (urlMode === "geolocation") {
+    currentMovementMode = "geolocation";
+  } else if (urlMode === "buttons") {
+    currentMovementMode = "buttons";
+  }
+
+  if (movementStrategy) {
+    movementStrategy.stopTracking();
+  }
+
+  if (currentMovementMode === "geolocation") {
+    movementStrategy = new GeolocationMovementStrategy(startPosition);
+    movementButtonsDiv.style.display = "none";
+    modeToggleButton.textContent = "🎮 Switch to Buttons";
+    modeIndicator.textContent = "Mode: Geolocation 📍";
+  } else {
+    movementStrategy = new ButtonMovementStrategy(startPosition);
+    movementButtonsDiv.style.display = "flex";
+    modeToggleButton.textContent = "📍 Switch to Geolocation";
+    modeIndicator.textContent = "Mode: Buttons 🎮";
+  }
+
+  movementStrategy.startTracking(onPlayerMoved);
+}
+
+function toggleMovementMode(): void {
+  const currentPos = movementStrategy?.getCurrentPosition() ||
+    latLngToCell(CLASSROOM_LATLNG.lat, CLASSROOM_LATLNG.lng);
+
+  currentMovementMode = currentMovementMode === "buttons"
+    ? "geolocation"
+    : "buttons";
+
+  const params = new URLSearchParams(globalThis.location.search);
+  params.set("movement", currentMovementMode);
+  globalThis.history.replaceState(
+    {},
+    "",
+    `${globalThis.location.pathname}?${params}`,
+  );
+
+  initializeMovementStrategy(currentPos);
+}
+
 // ==================== INITIALIZE GAME ====================
 
-const playerPosition = latLngToCell(CLASSROOM_LATLNG.lat, CLASSROOM_LATLNG.lng);
+const hasSavedState = loadGameState();
+
+let startPosition: { i: number; j: number };
+if (hasSavedState) {
+  const saved = JSON.parse(localStorage.getItem("gameState")!);
+  startPosition = saved.playerPosition;
+} else {
+  startPosition = latLngToCell(CLASSROOM_LATLNG.lat, CLASSROOM_LATLNG.lng);
+}
+
+initializeMovementStrategy(startPosition);
+
+const startBounds = cellToBounds(startPosition.i, startPosition.j);
+const startCenter = startBounds.getCenter();
+playerMarker.setLatLng(startCenter);
+map.setView(startCenter, GAMEPLAY_ZOOM_LEVEL);
 
 spawnCellsAroundPlayer();
 
