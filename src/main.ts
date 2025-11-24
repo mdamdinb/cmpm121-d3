@@ -111,7 +111,7 @@ const NULL_ISLAND = leaflet.latLng(0, 0); // Origin for global coordinate system
 const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
-const INTERACTION_RADIUS = 6;
+const INTERACTION_RADIUS = 3;
 const CACHE_SPAWN_PROBABILITY = 0.3;
 const GOAL_VALUE = 64;
 
